@@ -105,18 +105,48 @@ app.get("/login", (req,res) => {
 <div class="actions"><button class="primary" type="submit">Entrar</button></div></form>
 <p class="muted">Acesso administrativo. Não compartilhe sua senha.</p></section>`));
 });
-app.post("/login", (req,res) => {
-  const userOk = String(req.body.username || "") === ADMIN_USER;
-  const passOk = String(req.body.password || "") === ADMIN_PASSWORD;
-  if (!userOk || !passOk) return res.redirect("/login?erro=1");
-  req.session.regenerate(err => {
-    if (err) return res.status(500).send("Não foi possível iniciar a sessão.");
+app.post("/login", (req, res) => {
+  const receivedUser = String(req.body.username || "").trim();
+  const receivedPass = String(req.body.password || "");
+
+  const userOk = receivedUser === ADMIN_USER;
+  const passOk = receivedPass === ADMIN_PASSWORD;
+
+  console.log("Diagnóstico de login:", {
+    usernameMatches: userOk,
+    passwordMatches: passOk,
+    usernameLength: receivedUser.length,
+    passwordLength: receivedPass.length,
+    adminUserConfigured: Boolean(process.env.ADMIN_USER),
+    adminPasswordConfigured: Boolean(process.env.ADMIN_PASSWORD)
+  });
+
+  if (!userOk || !passOk) {
+    return res.redirect("/login?erro=1");
+  }
+
+  req.session.regenerate((err) => {
+    if (err) {
+      console.error("Erro ao criar sessão:", err.message);
+      return res.status(500).send(
+        "Não foi possível iniciar a sessão. Tente novamente."
+      );
+    }
+
     req.session.authenticated = true;
-    res.redirect("/painel");
+
+    req.session.save((saveErr) => {
+      if (saveErr) {
+        console.error("Erro ao salvar sessão:", saveErr.message);
+        return res.status(500).send(
+          "Não foi possível salvar a sessão. Tente novamente."
+        );
+      }
+
+      return res.redirect("/painel");
+    });
   });
 });
-app.post("/logout", requireAuth, (req,res) => req.session.destroy(() => res.redirect("/login")));
-
 app.get("/painel", requireAuth, (req,res) => {
   const rows = db.prepare("SELECT id,patient_name,whatsapp,service,price,status,created_at,signed_at FROM contracts ORDER BY id DESC LIMIT 250").all();
   const bodyRows = rows.map(c => `<tr><td>#${c.id}</td><td>${escapeHtml(c.patient_name)}</td><td>${escapeHtml(c.service)}</td><td>${escapeHtml(c.price)}</td><td><span class="badge ${c.status==="Assinado"?"signed":""}">${escapeHtml(c.status)}</span></td><td>${new Date(c.created_at).toLocaleString("pt-BR")}</td><td><a href="/contratos/${c.id}">Abrir</a></td></tr>`).join("");
